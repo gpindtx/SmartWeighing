@@ -1,0 +1,267 @@
+import pandas as pd
+
+import os, os.path
+
+import re
+
+#concatnar os ficheiros
+# dir="c:/Users/Leonardo Moreira/Documents/Projetos/Smart Weighing - Cachapuz Bilanciai/Dados/data/weighings/weighings_partition1.json"
+def load_data():
+    import pandas as pd
+    dir="c:/Users/Leonardo Moreira/Documents/Projetos/Smart Weighing - Cachapuz Bilanciai/Dados/data/weighings_2/weighings_partition1.json"
+
+    # contar o nº de ficheiros para concatnar
+    # files_number=len([name for name in os.listdir('.') if os.path.isfile(name)])-1
+    files_number=20
+
+    # concatnar os ficheiros num único dataframe
+    for i in range(files_number):
+        if i==0:
+            data=pd.read_json(dir)
+        else:
+            data=data.append(pd.read_json(dir))
+            dir=dir.replace("partition{}".format(i+1),"partition{}".format(i+2))
+
+    return data
+
+    #Objectivo da função: Remover o pattern ".0" da coluna cellSerialNumber_X do dataframe. Remover também o pattern de início "0" se o serialNumber não começar com "00".
+#inputs: 
+# string que corresponda ao header da coluna com os cellSerialNumbers,
+# exemplo 'cellSerialNumber_0'
+#Transformar os cellSerialNumbers que terminam com ".0" ou que comecem com "0" (não remover o "0" se a string começar com "00")
+def Clean_names(CellSerialNumber):
+    import re
+    if re.search('\.0', CellSerialNumber):
+        pos_2=re.search('\.0', CellSerialNumber).start()
+    else:
+        pos_2=len(CellSerialNumber)
+                
+    if re.match('00', CellSerialNumber)==None and re.match('0', CellSerialNumber):
+        pos_1=1
+    else:
+        pos_1=0
+    return CellSerialNumber[pos_1:pos_2]
+
+
+def clean_dataframe(data):
+#Remover as colunas das cellIds visto que não interessam para o caso
+    cellIdsList=['cellId_0','cellId_1','cellId_2','cellId_3','cellId_4','cellId_5','cellId_6','cellId_7']
+    data=data.drop(cellIdsList, axis=1)
+# Remover dados duplicados 
+    data=data.drop_duplicates(subset='_id', keep="last")
+# Ordenar por data
+    data=data.sort_values(by=['timestamp']) 
+#Dar reset aos indexes
+    data=data.reset_index(drop=True)
+    
+#Converter os cellSerialNumbers para strings
+    a="cellSerialNumber_0"
+    for i in range(8):
+        #Transformar os cellSerialNumbers em strings
+        data[a]=data[a].astype(str)
+        #Remover o pattern ".0" da coluna cellSerialNumber_X do dataframe. Remover também o pattern de início "0" se o serialNumber não começar com "00".
+        data[a]=data[a].apply(Clean_names)
+        a=a.replace("cellSerialNumber_{}".format(i),"cellSerialNumber_{}".format(i+1))
+        
+    return data
+
+####MAIN
+
+dataset=load_data()
+
+dataset=clean_dataframe(dataset)
+
+#Selecionar a ponte báscula P191021852
+import copy as cp
+
+weighbridge=cp.deepcopy(dataset[dataset['scaleSerialNumber']=='P191021852'])
+
+#Reset aos indexes da weighbridge
+weighbridge=weighbridge.reset_index(drop=True)
+
+weighbridge.shape()
+
+#Construir um dataframe que contenha as pesagens por cellSerialNumber
+
+cellIdsList=['7450332','7450333','7450339','7450340','7450338','7450337','7450336','7450341']
+
+
+test=cp.deepcopy(weighbridge)
+a='cellSerialNumber_7'
+b='cellWeight_7'
+
+import numpy as np
+
+Nan_array=np.empty(len(weighbridge))
+
+Nan_array[:]=np.NaN
+
+Nan_dataframe=pd.DataFrame(data=Nan_array,columns=['cellWeight_0'])
+
+SerialNumber_dataframe=cp.deepcopy(Nan_dataframe)
+
+for i in range(len(cellIdsList)):
+    aux=len(cellIdsList)-1-i
+    e="cellSerialNumber_{}".format(aux-1)
+    f='cellWeight_{}'.format(aux-1)
+    
+    SerialNumber_dataframe[:]=cellIdsList[7-i]
+    
+    for j in range(aux):
+        weighbridge[a]=weighbridge[a].mask((weighbridge[e]==cellIdsList[aux]),weighbridge[e])
+        weighbridge[b]=weighbridge[b].mask((weighbridge[e]==cellIdsList[aux]),weighbridge[f])
+        
+        e=e.replace("cellSerialNumber_{}".format(aux-1-j),"cellSerialNumber_{}".format(aux-1-(j+1)))
+        f=f.replace("cellWeight_{}".format(aux-1-j),"cellWeight_{}".format(aux-1-(j+1)))
+    
+    weighbridge[b]=weighbridge[b].mask((weighbridge[a]!=cellIdsList[7-i]),Nan_dataframe['cellWeight_0'])
+    weighbridge[a]=weighbridge[a].mask((weighbridge[a]!=cellIdsList[7-i]), SerialNumber_dataframe['cellWeight_0'])
+    
+    a=a.replace("cellSerialNumber_{}".format(7-i),"cellSerialNumber_{}".format(7-(i+1)))
+    b=b.replace("cellWeight_{}".format(7-i),"cellWeight_{}".format(7-(i+1)))
+
+# Substituir no dataframe os Nans pelos valores anteriores
+
+weighbridge.fillna(method='ffill', inplace=True)
+
+
+#Separar os pontos de pesagem por ciclo de carga/descarga baseado na frequencia de amostragem (6 em 6 segundos ou menos)
+aux=weighbridge['timestamp'].view('int64')
+aux[:]=aux[:]/(10**9)
+Nan_dataframe=pd.DataFrame(data=Nan_array,columns=['Weighings_by_period'])
+weighbridge=pd.concat([weighbridge, Nan_dataframe], axis=1)
+counter=1
+weighbridge['Weighings_by_period'][0]=counter
+
+Nan_dataframe=pd.DataFrame(data=Nan_array,columns=['Weighings_by_cycle'])
+weighbridge=pd.concat([weighbridge, Nan_dataframe], axis=1)
+
+count_iter=0
+flag=False
+
+for i in range(len(Nan_dataframe)-1):
+    if aux[i+1]-aux[i]>30:
+        counter=counter+1
+    weighbridge['Weighings_by_period'][i+1]=counter
+    
+    #Separar os pontos de pesagem por ciclo de carga/descarga baseado no início e fim das pesagens terem o valor zero
+    if weighbridge['scaleGross'][i+1]!=0 and weighbridge['scaleGross'][i]==0 and flag==False:
+        flag=True
+        count_iter=count_iter+1
+    if i!=0:
+        if weighbridge['scaleGross'][i]==0 and weighbridge['scaleGross'][i-1]!=0 and flag==True:
+            flag=False
+    if weighbridge['scaleGross'][i]==0 and weighbridge['scaleGross'][i+1]==0:
+        weighbridge['Weighings_by_cycle'][i]=np.nan
+    else:    
+        weighbridge['Weighings_by_cycle'][i]=count_iter
+
+aux_2=weighbridge.head(100)
+
+
+
+#Conclusão, à partida parece que existem muito menos 
+
+# test=cp.deepcopy(weighbridge)
+# Nan_dataframe=pd.DataFrame(data=Nan_array,columns=['Weighings_by_cycle'])
+# test=pd.concat([test, Nan_dataframe], axis=1)
+# counter=0
+# flag=False #Variável que indica que não se está perante um ciclo de pesagem
+
+# for i in range(len(Nan_dataframe)-1):
+#     if test['scaleGross'][i+1]!=0 and test['scaleGross'][i]==0 and flag==False:
+#         flag=True
+#         counter=counter+1
+#     if i!=0:
+#         if test['scaleGross'][i]==0 and test['scaleGross'][i-1]!=0 and flag==True:
+#             flag=False
+#     if test['scaleGross'][i]==0 and test['scaleGross'][i+1]==0:
+#         test['Weighings_by_cycle'][i]=np.nan
+#     else:    
+#         test['Weighings_by_cycle'][i]=counter
+
+
+
+
+
+
+
+
+#------------------------------------------------------------------- experimental
+#gráfico
+import matplotlib.pyplot as plt
+import copy as cp
+
+test=cp.deepcopy(weights[['timestamp','cellWeight']][weights['cellSerialNumber']=='7450337'])
+
+test.set_index('timestamp', inplace=True)
+
+%matplotlib qt5
+test.plot(figsize=(20,10), linewidth=5, fontsize=20)
+plt.xlabel('Date', fontsize=20)
+plt.show()
+
+
+test=cp.deepcopy(weighbridge[['timestamp','scaleGross']].loc[weighbridge['Weighings_by_cycle']==891])
+
+test.set_index('timestamp', inplace=True)
+
+%matplotlib qt5
+test.plot(figsize=(20,10), linewidth=5, fontsize=20)
+plt.xlabel('Date', fontsize=20)
+plt.show()
+
+
+
+# Identificar o maior nº de pesagens por célula de carga
+
+    #adicionar uma coluna auxiliar ao dataset
+listofones=[1]*len(dataset.iloc[:,0])
+dataset["Ones"]=listofones
+
+max_weighs_by_loadcell = np.zeros(shape=(8,1))
+a="cellSerialNumber_0"
+
+for i in range(len(max_weighs_by_loadcell)):
+    countresults=dataset.groupby(a)["Ones"].count()
+    max_weighs_by_loadcell[i]=countresults.max()
+    
+    a=a.replace("cellSerialNumber_{}".format(i),"cellSerialNumber_{}".format(i+1))
+
+print("Existem no máximo {} pesagens por célula de carga".format(max_weighs_by_loadcell.max()))
+
+
+
+#Objectivo da função: dar output do dataset filtrado pela celula de carga com maior numero de pesagens
+#inputs: data=dataset que se queira analisar
+#celulaId_n = string que corresponda ao header da coluna a pesquisar pela celula de carga com maior numero de pesagens,
+# exemplo 'cellId_0'
+def celula_com_mais_pesagens(data,celulaId_n):
+    #contar quantas pesagens tem por célula de carga na coluna 'celulaId_n'
+    cr=data.groupby(celulaId_n)["Ones"].count()
+    #retirar o id da célula de carga que tenha mais pesagens na coluna 'celulaId_n'
+    id_cel_mais_pesagens=cr.iloc[:].idxmax()
+    #filtrar o dataset pela celula de carga que tenha maior numero de pesagens na coluna 'celulaId_n'
+    filtered_dataset=data[data[celulaId_n]==id_cel_mais_pesagens]
+    return filtered_dataset
+    
+
+#dá print às celulas de carga com maior numero de pesagens
+a="cellSerialNumber_0"
+for i in range(len(max_weighs_by_loadcell)):
+    print(celula_com_mais_pesagens(dataset,a))
+    a=a.replace("cellSerialNumber_{}".format(i),"cellSerialNumber_{}".format(i+1))
+
+a="cellSerialNumber_0"
+for i in range(len(max_weighs_by_loadcell)):
+    dataset_cellSerialNumber_X_max_weighs=celula_com_mais_pesagens(dataset,a)
+    aux_01=dataset_cellSerialNumber_X_max_weighs[a].iloc[0]
+    print(aux_01)
+    b="cellSerialNumber_0"
+    for j in range(len(max_weighs_by_loadcell)):
+        print(dataset[b][dataset[b].values==aux_01])
+        b=b.replace("cellSerialNumber_{}".format(j),"cellSerialNumber_{}".format(j+1))
+    a=a.replace("cellSerialNumber_{}".format(i),"cellSerialNumber_{}".format(i+1))
+
+#dá print aos cellSerialNumber únicos
+dataset.cellSerialNumber_0.unique()
