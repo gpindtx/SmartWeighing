@@ -1,0 +1,10 @@
+.idea
+.env
+node_modules
+package-lock.json
+log
+src/config/jwt/
+src/config/identity
+src/config/smartContract/WeighingTickets.json
+src/fixtures/
+src/helpers/__crypto/functions/__pycache__/
