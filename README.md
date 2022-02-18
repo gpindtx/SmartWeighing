@@ -2,7 +2,8 @@
 DTx SmartWeighing 
 
 [goQuorum](#goQuorum)
-[Data Science](#data science)
+
+[Data Science](#Data Science)
 
 ## goQuorum
 
