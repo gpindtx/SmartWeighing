@@ -1,7 +1,7 @@
 # SmartWeighing
 DTx SmartWeighing 
 
-[Headers](#headers)
+[goQurum](#goQuorum)
 
 ## goQuorum
 
