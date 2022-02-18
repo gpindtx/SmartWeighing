@@ -3,7 +3,7 @@ DTx SmartWeighing
 
 [goQuorum](#goQuorum)
 
-[Data Science](#Data Science)
+[Data Science](#dataScience)
 
 ## goQuorum
 
@@ -38,6 +38,6 @@ In the token field the accessToken should be pasted.
 
 
 
-## Data Science
+## dataScience
 
 Folder with data science notebooks and datasets
