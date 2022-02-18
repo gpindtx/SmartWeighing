@@ -1,7 +1,9 @@
 # SmartWeighing
 DTx SmartWeighing 
 
-goQuorum
+[Headers](#headers)
+
+## goQuorum
 
 1. run ./setup
   This script runs the following steps:
@@ -34,6 +36,6 @@ In the token field the accessToken should be pasted.
 
 
 
-Data Science
+## Data Science
 
 Folder with data science notebooks and datasets
